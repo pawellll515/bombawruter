@@ -1,9 +1,11 @@
-
 name: BombaWruter
-version: 1.0.0
+version: 1.1.0
 main: pl.bombawruter.Main
 api-version: '1.21'
 author: BombaWruter
+
+depend:
+  - ProtocolLib
 
 commands:
   bombawruter:
@@ -15,4 +17,3 @@ permissions:
   bombawruter.use:
     description: Pozwala uzywac komendy BombaWruter
     default: op
-
