@@ -1,1 +1,34 @@
 
+
+name: Build BombaWruter
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Build plugin
+        working-directory: BombaWruter
+        run: gradle build
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: BombaWruter
+          path: BombaWruter/build/libs/*.jar
