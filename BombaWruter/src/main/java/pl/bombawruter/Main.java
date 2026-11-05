@@ -17,9 +17,12 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
@@ -156,12 +159,29 @@ public class Main extends JavaPlugin implements Listener {
                 }
         );
 
-        // UKRYWANIE ZMIAN ZDROWIA I OBRAZEN U ZAMROZONEGO
+        // BLOKOWANIE AKTUALIZACJI PASKA ZDROWIA U ZAMROZONEGO
         protocolManager.addPacketListener(
                 new PacketAdapter(
                         this,
                         ListenerPriority.HIGHEST,
-                        PacketType.Play.Server.UPDATE_HEALTH,
+                        PacketType.Play.Server.UPDATE_HEALTH
+                ) {
+
+                    @Override
+                    public void onPacketSending(PacketEvent event) {
+
+                        if (czyZamrozony(event.getPlayer())) {
+                            event.setCancelled(true);
+                        }
+                    }
+                }
+        );
+
+        // UKRYWANIE ANIMACJI OBRAZEN ZAMROZONEGO GRACZA
+        protocolManager.addPacketListener(
+                new PacketAdapter(
+                        this,
+                        ListenerPriority.HIGHEST,
                         PacketType.Play.Server.HURT_ANIMATION,
                         PacketType.Play.Server.DAMAGE_EVENT,
                         PacketType.Play.Server.ENTITY_STATUS,
@@ -176,8 +196,6 @@ public class Main extends JavaPlugin implements Listener {
                             return;
                         }
 
-                        // Pozostali gracze nie widza animacji
-                        // obrazen zamrozonego gracza.
                         try {
                             int entityId = event.getPacket()
                                     .getIntegers()
@@ -284,7 +302,7 @@ public class Main extends JavaPlugin implements Listener {
                         + " §ana 30 sekund!"
         );
 
-        // Celowo nie wysylamy zadnej wiadomosci do zamrozonego.
+        // Nie wysylamy zadnej wiadomosci do zamrozonego.
 
         return true;
     }
@@ -372,7 +390,7 @@ public class Main extends JavaPlugin implements Listener {
 
         for (int i = 0; i < 20; i++) {
 
-            // Wszystkie dzwieki zostana wykonane w ciagu 3 tickow.
+            // Wszystkie dzwieki w ciagu 3 tickow.
             long opoznienie = i % 3;
 
             Bukkit.getScheduler().runTaskLater(
@@ -474,10 +492,42 @@ public class Main extends JavaPlugin implements Listener {
         if (entity instanceof Player player
                 && czyZamrozony(player)) {
 
-            // Gracz nadal otrzymuje obrazenia,
+            // Gracz otrzymuje obrazenia,
             // ale nie zostaje przesuniety przez knockback.
             event.setCancelled(true);
         }
+    }
+
+    // NATYCHMIASTOWE ZAKONCZENIE LAGA PO SMIERCI
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onDeath(PlayerDeathEvent event) {
+
+        Player player = event.getEntity();
+        UUID uuid = player.getUniqueId();
+
+        // Usuwamy zamrozenie bez teleportowania i bez dzwiekow.
+        zamrozeni.remove(uuid);
+
+        BukkitTask task = taski.remove(uuid);
+
+        if (task != null) {
+            task.cancel();
+        }
+    }
+
+    // ODSWIEZENIE PASKA ZDROWIA PO ODRODZENIU
+    @EventHandler
+    public void onRespawn(PlayerRespawnEvent event) {
+
+        Player player = event.getPlayer();
+
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+
+            if (player.isOnline()) {
+                wyslijZdrowie(player);
+            }
+
+        }, 1L);
     }
 
     @EventHandler
