@@ -47,7 +47,8 @@ public class Main extends JavaPlugin implements Listener {
     private record FreezeData(
             Location serverLocation,
             int entityId,
-            Set<Integer> otherPlayerIds
+            Set<Integer> otherPlayerIds,
+            float frozenHealth
     ) {}
 
     @Override
@@ -159,7 +160,7 @@ public class Main extends JavaPlugin implements Listener {
                 }
         );
 
-        // BLOKOWANIE AKTUALIZACJI PASKA ZDROWIA U ZAMROZONEGO
+        // ZACHOWANIE SERDUSZ Z MOMENTU ROZPOCZECIA ZAMROZENIA
         protocolManager.addPacketListener(
                 new PacketAdapter(
                         this,
@@ -170,9 +171,19 @@ public class Main extends JavaPlugin implements Listener {
                     @Override
                     public void onPacketSending(PacketEvent event) {
 
-                        if (czyZamrozony(event.getPlayer())) {
-                            event.setCancelled(true);
+                        FreezeData data = zamrozeni.get(
+                                event.getPlayer().getUniqueId()
+                        );
+
+                        if (data == null) {
+                            return;
                         }
+
+                        // Podmieniamy tylko zdrowie.
+                        // Nie anulujemy calego pakietu.
+                        event.getPacket()
+                                .getFloat()
+                                .write(0, data.frozenHealth());
                     }
                 }
         );
@@ -302,8 +313,6 @@ public class Main extends JavaPlugin implements Listener {
                         + " §ana 30 sekund!"
         );
 
-        // Nie wysylamy zadnej wiadomosci do zamrozonego.
-
         return true;
     }
 
@@ -325,7 +334,8 @@ public class Main extends JavaPlugin implements Listener {
         FreezeData data = new FreezeData(
                 player.getLocation().clone(),
                 player.getEntityId(),
-                Set.copyOf(otherPlayerIds)
+                Set.copyOf(otherPlayerIds),
+                (float) player.getHealth()
         );
 
         zamrozeni.put(uuid, data);
@@ -390,7 +400,6 @@ public class Main extends JavaPlugin implements Listener {
 
         for (int i = 0; i < 20; i++) {
 
-            // Wszystkie dzwieki w ciagu 3 tickow.
             long opoznienie = i % 3;
 
             Bukkit.getScheduler().runTaskLater(
@@ -492,7 +501,7 @@ public class Main extends JavaPlugin implements Listener {
         if (entity instanceof Player player
                 && czyZamrozony(player)) {
 
-            // Gracz otrzymuje obrazenia,
+            // Gracz nadal otrzymuje obrazenia,
             // ale nie zostaje przesuniety przez knockback.
             event.setCancelled(true);
         }
@@ -505,7 +514,6 @@ public class Main extends JavaPlugin implements Listener {
         Player player = event.getEntity();
         UUID uuid = player.getUniqueId();
 
-        // Usuwamy zamrozenie bez teleportowania i bez dzwiekow.
         zamrozeni.remove(uuid);
 
         BukkitTask task = taski.remove(uuid);
