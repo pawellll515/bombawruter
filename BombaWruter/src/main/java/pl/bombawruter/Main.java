@@ -1,4 +1,3 @@
-
 package pl.bombawruter;
 
 import com.comphenix.protocol.PacketType;
@@ -373,7 +372,8 @@ public class Main extends JavaPlugin implements Listener {
 
         for (int i = 0; i < 20; i++) {
 
-            long opoznienie = i;
+            // Wszystkie dzwieki zostana wykonane w ciagu 3 tickow.
+            long opoznienie = i % 3;
 
             Bukkit.getScheduler().runTaskLater(
                     this,
