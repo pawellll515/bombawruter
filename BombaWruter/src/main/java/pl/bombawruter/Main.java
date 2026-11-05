@@ -8,26 +8,19 @@ import com.comphenix.protocol.events.ListenerPriority;
 import com.comphenix.protocol.events.PacketAdapter;
 import com.comphenix.protocol.events.PacketEvent;
 
+import io.papermc.paper.event.entity.EntityKnockbackEvent;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.event.block.BlockPlaceEvent;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
-import org.bukkit.event.inventory.InventoryOpenEvent;
-import org.bukkit.event.player.PlayerDropItemEvent;
-import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerItemConsumeEvent;
-import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
@@ -37,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class Main extends JavaPlugin implements Listener {
 
@@ -49,10 +43,8 @@ public class Main extends JavaPlugin implements Listener {
     private ProtocolManager protocolManager;
 
     private record FreezeData(
-            double x,
-            double y,
-            double z,
-            int selfEntityId,
+            Location serverLocation,
+            int entityId,
             Set<Integer> otherPlayerIds
     ) {}
 
@@ -61,17 +53,17 @@ public class Main extends JavaPlugin implements Listener {
 
         if (Bukkit.getPluginManager().getPlugin("ProtocolLib") == null) {
             getLogger().severe("Nie znaleziono ProtocolLib!");
-            getServer().getPluginManager().disablePlugin(this);
+            Bukkit.getPluginManager().disablePlugin(this);
             return;
         }
 
         protocolManager = ProtocolLibrary.getProtocolManager();
 
-        getServer().getPluginManager().registerEvents(this, this);
+        Bukkit.getPluginManager().registerEvents(this, this);
 
         zarejestrujPakiety();
 
-        getLogger().info("BombaWruter 1.1.0 zostal wlaczony!");
+        getLogger().info("BombaWruter 2.0 zostal wlaczony!");
     }
 
     @Override
@@ -91,15 +83,48 @@ public class Main extends JavaPlugin implements Listener {
 
     private void zarejestrujPakiety() {
 
+        // BLOKOWANIE DZIALAN ZAMROZONEGO GRACZA
         protocolManager.addPacketListener(
                 new PacketAdapter(
                         this,
-                        ListenerPriority.NORMAL,
+                        ListenerPriority.HIGHEST,
+                        PacketType.Play.Client.POSITION,
+                        PacketType.Play.Client.POSITION_LOOK,
+                        PacketType.Play.Client.LOOK,
+                        PacketType.Play.Client.GROUND,
+                        PacketType.Play.Client.BLOCK_DIG,
+                        PacketType.Play.Client.USE_ITEM_ON,
+                        PacketType.Play.Client.USE_ITEM,
+                        PacketType.Play.Client.USE_ENTITY,
+                        PacketType.Play.Client.WINDOW_CLICK,
+                        PacketType.Play.Client.HELD_ITEM_SLOT,
+                        PacketType.Play.Client.SET_CREATIVE_SLOT,
+                        PacketType.Play.Client.ARM_ANIMATION,
+                        PacketType.Play.Client.ENTITY_ACTION,
+                        PacketType.Play.Client.PICK_ITEM
+                ) {
+
+                    @Override
+                    public void onPacketReceiving(PacketEvent event) {
+
+                        if (czyZamrozony(event.getPlayer())) {
+                            event.setCancelled(true);
+                        }
+                    }
+                }
+        );
+
+        // ZATRZYMANIE RUCHU INNYCH GRACZY NA EKRANIE ZAMROZONEGO
+        protocolManager.addPacketListener(
+                new PacketAdapter(
+                        this,
+                        ListenerPriority.HIGHEST,
                         PacketType.Play.Server.REL_ENTITY_MOVE,
                         PacketType.Play.Server.REL_ENTITY_MOVE_LOOK,
                         PacketType.Play.Server.ENTITY_LOOK,
                         PacketType.Play.Server.ENTITY_HEAD_ROTATION,
-                        PacketType.Play.Server.ENTITY_TELEPORT
+                        PacketType.Play.Server.ENTITY_TELEPORT,
+                        PacketType.Play.Server.ENTITY_POSITION_SYNC
                 ) {
 
                     @Override
@@ -124,7 +149,7 @@ public class Main extends JavaPlugin implements Listener {
 
                         } catch (Exception exception) {
                             getLogger().warning(
-                                    "Blad odczytu pakietu pozycji: "
+                                    "Blad pakietu ruchu: "
                                             + exception.getMessage()
                             );
                         }
@@ -132,111 +157,91 @@ public class Main extends JavaPlugin implements Listener {
                 }
         );
 
+        // UKRYWANIE ZMIAN ZDROWIA I OBRAZEN U ZAMROZONEGO
         protocolManager.addPacketListener(
                 new PacketAdapter(
                         this,
-                        ListenerPriority.NORMAL,
-                        PacketType.Play.Server.UPDATE_HEALTH
+                        ListenerPriority.HIGHEST,
+                        PacketType.Play.Server.UPDATE_HEALTH,
+                        PacketType.Play.Server.HURT_ANIMATION,
+                        PacketType.Play.Server.DAMAGE_EVENT,
+                        PacketType.Play.Server.ENTITY_STATUS,
+                        PacketType.Play.Server.ENTITY_VELOCITY
                 ) {
 
                     @Override
                     public void onPacketSending(PacketEvent event) {
 
-                        if (zamrozeni.containsKey(
-                                event.getPlayer().getUniqueId()
-                        )) {
+                        if (czyZamrozony(event.getPlayer())) {
                             event.setCancelled(true);
-                        }
-                    }
-                }
-        );
-
-        protocolManager.addPacketListener(
-                new PacketAdapter(
-                        this,
-                        ListenerPriority.NORMAL,
-                        PacketType.Play.Server.ENTITY_SOUND
-                ) {
-
-                    @Override
-                    public void onPacketSending(PacketEvent event) {
-
-                        FreezeData data = zamrozeni.get(
-                                event.getPlayer().getUniqueId()
-                        );
-
-                        if (data == null) {
                             return;
                         }
 
+                        // Pozostali gracze nie widza animacji
+                        // obrazen zamrozonego gracza.
                         try {
                             int entityId = event.getPacket()
                                     .getIntegers()
                                     .read(0);
 
-                            if (entityId != data.selfEntityId()) {
+                            if (jestZamrozonyEntity(entityId)) {
                                 event.setCancelled(true);
                             }
 
-                        } catch (Exception exception) {
-                            getLogger().warning(
-                                    "Blad odczytu dzwieku encji: "
-                                            + exception.getMessage()
-                            );
+                        } catch (Exception ignored) {
                         }
                     }
                 }
         );
 
+        // WYCISZENIE DZWIEKOW U ZAMROZONEGO
         protocolManager.addPacketListener(
                 new PacketAdapter(
                         this,
-                        ListenerPriority.NORMAL,
+                        ListenerPriority.HIGHEST,
+                        PacketType.Play.Server.ENTITY_SOUND,
                         PacketType.Play.Server.NAMED_SOUND_EFFECT
                 ) {
 
                     @Override
                     public void onPacketSending(PacketEvent event) {
 
-                        FreezeData data = zamrozeni.get(
-                                event.getPlayer().getUniqueId()
-                        );
-
-                        if (data == null) {
-                            return;
-                        }
-
-                        try {
-                            var integers = event.getPacket().getIntegers();
-
-                            if (integers.size() < 3) {
-                                return;
-                            }
-
-                            double soundX = integers.read(0) / 8.0;
-                            double soundY = integers.read(1) / 8.0;
-                            double soundZ = integers.read(2) / 8.0;
-
-                            double dx = soundX - data.x();
-                            double dy = soundY - data.y();
-                            double dz = soundZ - data.z();
-
-                            double distanceSquared =
-                                    dx * dx + dy * dy + dz * dz;
-
-                            if (distanceSquared > 9.0) {
-                                event.setCancelled(true);
-                            }
-
-                        } catch (Exception exception) {
-                            getLogger().warning(
-                                    "Blad odczytu dzwieku: "
-                                            + exception.getMessage()
-                            );
+                        if (czyZamrozony(event.getPlayer())) {
+                            event.setCancelled(true);
                         }
                     }
                 }
         );
+
+        // BLOKOWANIE KOREKT POZYCJI KLIENTA PODCZAS FREEZE
+        protocolManager.addPacketListener(
+                new PacketAdapter(
+                        this,
+                        ListenerPriority.HIGHEST,
+                        PacketType.Play.Server.POSITION
+                ) {
+
+                    @Override
+                    public void onPacketSending(PacketEvent event) {
+
+                        if (czyZamrozony(event.getPlayer())) {
+                            event.setCancelled(true);
+                        }
+                    }
+                }
+        );
+    }
+
+    private boolean jestZamrozonyEntity(int entityId) {
+
+        for (FreezeData data : zamrozeni.values()) {
+
+            if (data.entityId() == entityId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     @Override
@@ -280,13 +285,14 @@ public class Main extends JavaPlugin implements Listener {
                         + " §ana 30 sekund!"
         );
 
+        // Celowo nie wysylamy zadnej wiadomosci do zamrozonego.
+
         return true;
     }
 
     private void zamroz(Player player) {
 
         UUID uuid = player.getUniqueId();
-        Location location = player.getLocation();
 
         Set<Integer> otherPlayerIds = new HashSet<>();
 
@@ -300,9 +306,7 @@ public class Main extends JavaPlugin implements Listener {
         }
 
         FreezeData data = new FreezeData(
-                location.getX(),
-                location.getY(),
-                location.getZ(),
+                player.getLocation().clone(),
                 player.getEntityId(),
                 Set.copyOf(otherPlayerIds)
         );
@@ -322,22 +326,22 @@ public class Main extends JavaPlugin implements Listener {
 
         UUID uuid = player.getUniqueId();
 
+        FreezeData data = zamrozeni.remove(uuid);
+
         BukkitTask task = taski.remove(uuid);
 
         if (task != null) {
             task.cancel();
         }
 
-        zamrozeni.remove(uuid);
-
-        if (!player.isOnline()) {
+        if (data == null || !player.isOnline()) {
             return;
         }
 
-        player.setVelocity(new Vector(0, 0, 0));
+        // Przywracamy rzeczywista pozycje serwerowa.
+        player.teleport(data.serverLocation());
 
-        wyslijZdrowie(player);
-
+        // Odswiezamy widok innych graczy.
         for (Player other : Bukkit.getOnlinePlayers()) {
 
             if (other.equals(player)) {
@@ -350,6 +354,56 @@ public class Main extends JavaPlugin implements Listener {
                 player.hidePlayer(this, other);
                 player.showPlayer(this, other);
             }
+        }
+
+        // Odswiezamy pasek zdrowia.
+        wyslijZdrowie(player);
+
+        // Odtwarzamy 20 losowych dzwiekow uderzen.
+        odtworzDzwieki(player);
+    }
+
+    private void odtworzDzwieki(Player player) {
+
+        Sound[] dzwieki = {
+                Sound.ENTITY_PLAYER_ATTACK_STRONG,
+                Sound.ENTITY_PLAYER_ATTACK_SWEEP,
+                Sound.ENTITY_PLAYER_ATTACK_CRIT
+        };
+
+        for (int i = 0; i < 20; i++) {
+
+            long opoznienie = i;
+
+            Bukkit.getScheduler().runTaskLater(
+                    this,
+                    () -> {
+
+                        if (!player.isOnline()) {
+                            return;
+                        }
+
+                        ThreadLocalRandom random =
+                                ThreadLocalRandom.current();
+
+                        Sound sound = dzwieki[
+                                random.nextInt(dzwieki.length)
+                        ];
+
+                        float pitch = (float) random.nextDouble(
+                                0.8,
+                                1.3
+                        );
+
+                        player.playSound(
+                                player.getLocation(),
+                                sound,
+                                1.0f,
+                                pitch
+                        );
+                    },
+                    opoznienie
+            );
         }
     }
 
@@ -379,7 +433,7 @@ public class Main extends JavaPlugin implements Listener {
 
         } catch (Exception exception) {
             getLogger().warning(
-                    "Nie udalo sie odswiezyc zdrowia: "
+                    "Blad odswiezania zdrowia: "
                             + exception.getMessage()
             );
         }
@@ -413,97 +467,15 @@ public class Main extends JavaPlugin implements Listener {
     }
 
     @EventHandler
-    public void onInteract(PlayerInteractEvent event) {
+    public void onKnockback(EntityKnockbackEvent event) {
 
-        if (czyZamrozony(event.getPlayer())) {
-            event.setCancelled(true);
-        }
-    }
+        Entity entity = event.getEntity();
 
-    @EventHandler
-    public void onBlockBreak(BlockBreakEvent event) {
-
-        if (czyZamrozony(event.getPlayer())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler
-    public void onBlockPlace(BlockPlaceEvent event) {
-
-        if (czyZamrozony(event.getPlayer())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler
-    public void onConsume(PlayerItemConsumeEvent event) {
-
-        if (czyZamrozony(event.getPlayer())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler
-    public void onDrop(PlayerDropItemEvent event) {
-
-        if (czyZamrozony(event.getPlayer())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler
-    public void onSwap(PlayerSwapHandItemsEvent event) {
-
-        if (czyZamrozony(event.getPlayer())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler
-    public void onHeld(PlayerItemHeldEvent event) {
-
-        if (czyZamrozony(event.getPlayer())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler
-    public void onInventoryClick(InventoryClickEvent event) {
-
-        if (event.getWhoClicked() instanceof Player player
+        if (entity instanceof Player player
                 && czyZamrozony(player)) {
 
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler
-    public void onInventoryDrag(InventoryDragEvent event) {
-
-        if (event.getWhoClicked() instanceof Player player
-                && czyZamrozony(player)) {
-
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler
-    public void onInventoryOpen(InventoryOpenEvent event) {
-
-        if (event.getPlayer() instanceof Player player
-                && czyZamrozony(player)) {
-
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler
-    public void onAttack(EntityDamageByEntityEvent event) {
-
-        if (event.getDamager() instanceof Player player
-                && czyZamrozony(player)) {
-
+            // Gracz nadal otrzymuje obrazenia,
+            // ale nie zostaje przesuniety przez knockback.
             event.setCancelled(true);
         }
     }
