@@ -1,1 +1,18 @@
 
+name: BombaWruter
+version: 1.0.0
+main: pl.bombawruter.Main
+api-version: '1.21'
+author: BombaWruter
+
+commands:
+  bombawruter:
+    description: Zamraza wybranego gracza na 30 sekund
+    usage: /bombawruter <nick>
+    permission: bombawruter.use
+
+permissions:
+  bombawruter.use:
+    description: Pozwala uzywac komendy BombaWruter
+    default: op
+
