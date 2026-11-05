@@ -174,7 +174,6 @@ public class Main extends JavaPlugin implements Listener {
                                     .getIntegers()
                                     .read(0);
 
-                            // Dzwieki wlasnej postaci pozostaja.
                             if (entityId != data.selfEntityId()) {
                                 event.setCancelled(true);
                             }
@@ -214,8 +213,6 @@ public class Main extends JavaPlugin implements Listener {
                                 return;
                             }
 
-                            // Pozycje dzwieku w pakiecie sa podane
-                            // w jednostkach 1/8 bloku.
                             double soundX = integers.read(0) / 8.0;
                             double soundY = integers.read(1) / 8.0;
                             double soundZ = integers.read(2) / 8.0;
@@ -227,8 +224,6 @@ public class Main extends JavaPlugin implements Listener {
                             double distanceSquared =
                                     dx * dx + dy * dy + dz * dz;
 
-                            // Bliskie dzwieki pozostaja slyszalne,
-                            // dalsze dzwieki sa wyciszane.
                             if (distanceSquared > 9.0) {
                                 event.setCancelled(true);
                             }
@@ -284,8 +279,6 @@ public class Main extends JavaPlugin implements Listener {
                 "§aZamrozono gracza §e" + target.getName()
                         + " §ana 30 sekund!"
         );
-
-        target.sendMessage("§cZostales zamrozony na 30 sekund!");
 
         return true;
     }
@@ -343,10 +336,8 @@ public class Main extends JavaPlugin implements Listener {
 
         player.setVelocity(new Vector(0, 0, 0));
 
-        // Wyslanie aktualnego zdrowia po zakonczeniu zamrozenia.
         wyslijZdrowie(player);
 
-        // Odswiezenie widoku pozostalych graczy.
         for (Player other : Bukkit.getOnlinePlayers()) {
 
             if (other.equals(player)) {
@@ -360,8 +351,6 @@ public class Main extends JavaPlugin implements Listener {
                 player.showPlayer(this, other);
             }
         }
-
-        player.sendMessage("§aMozesz juz sie poruszac!");
     }
 
     private void wyslijZdrowie(Player player) {
