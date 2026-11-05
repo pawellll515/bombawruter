@@ -13,30 +13,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Pobranie repozytorium
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Konfiguracja Java 21
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
 
-      - name: Nadanie uprawnień Gradle
-        run: chmod +x gradlew
-        continue-on-error: true
+      - name: Build plugin
+        working-directory: BombaWruter
+        run: gradle build
 
-      - name: Budowanie pluginu
-        run: |
-          if [ -f gradlew ]; then
-            ./gradlew build
-          else
-            gradle build
-          fi
-
-      - name: Udostępnienie pliku JAR
+      - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
           name: BombaWruter
-          path: build/libs/*.jar
-          
+          path: BombaWruter/build/libs/*.jar
