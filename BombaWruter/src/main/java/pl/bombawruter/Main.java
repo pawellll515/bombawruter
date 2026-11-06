@@ -1,4 +1,3 @@
-
 package pl.bombawruter;
 
 import com.comphenix.protocol.PacketType;
@@ -43,7 +42,7 @@ public class Main extends JavaPlugin implements Listener {
     private final Map<UUID, BukkitTask> taski =
             new ConcurrentHashMap<>();
 
-    private final Map<UUID, BukkitTask> zadaniaZdrowia =
+    private final Map<UUID, BukkitTask> taskiSerc =
             new ConcurrentHashMap<>();
 
     private ProtocolManager protocolManager;
@@ -80,12 +79,12 @@ public class Main extends JavaPlugin implements Listener {
             task.cancel();
         }
 
-        for (BukkitTask task : zadaniaZdrowia.values()) {
+        for (BukkitTask task : taskiSerc.values()) {
             task.cancel();
         }
 
         taski.clear();
-        zadaniaZdrowia.clear();
+        taskiSerc.clear();
         zamrozeni.clear();
 
         if (protocolManager != null) {
@@ -159,17 +158,25 @@ public class Main extends JavaPlugin implements Listener {
                                 event.setCancelled(true);
                             }
 
-                        } catch (Exception ignored) {
+                        } catch (Exception exception) {
+                            getLogger().warning(
+                                    "Blad pakietu ruchu: "
+                                            + exception.getMessage()
+                            );
                         }
                     }
                 }
         );
 
-        // ZAMIANA HP W KAZDYM PAKIECIE NA ZAPISANA WARTOSC
+        /*
+         * NAJWAZNIEJSZA CZESC:
+         * Przechwytujemy aktualizacje zdrowia na samym koncu
+         * i zawsze podmieniamy HP na wartosc zapisana przy zamrozeniu.
+         */
         protocolManager.addPacketListener(
                 new PacketAdapter(
                         this,
-                        ListenerPriority.HIGHEST,
+                        ListenerPriority.MONITOR,
                         PacketType.Play.Server.UPDATE_HEALTH
                 ) {
 
@@ -191,7 +198,7 @@ public class Main extends JavaPlugin implements Listener {
                 }
         );
 
-        // UKRYWANIE ANIMACJI OBRAZEN
+        // UKRYWANIE ANIMACJI OBRAZEN ZAMROZONEGO GRACZA
         protocolManager.addPacketListener(
                 new PacketAdapter(
                         this,
@@ -244,7 +251,7 @@ public class Main extends JavaPlugin implements Listener {
                 }
         );
 
-        // BLOKOWANIE KOREKT POZYCJI
+        // BLOKOWANIE KOREKT POZYCJI KLIENTA PODCZAS FREEZE
         protocolManager.addPacketListener(
                 new PacketAdapter(
                         this,
@@ -346,22 +353,34 @@ public class Main extends JavaPlugin implements Listener {
 
         zamrozeni.put(uuid, data);
 
-        // CO TICK WYSYLAMY GRACZOWI ZAPISANA LICZBE HP
-        BukkitTask healthTask = Bukkit.getScheduler().runTaskTimer(
+        // NATYCHMIAST WYSYLAMY ZAPAMIETANE HP
+        wyslijZdrowie(player, zapisaneHP);
+
+        /*
+         * CO TICK WYSYLAMY ZAPAMIETANE HP.
+         * Nawet jesli jakis inny plugin wysle prawdziwe HP,
+         * klient regularnie otrzyma ponownie falszywa wartosc.
+         */
+        BukkitTask heartTask = Bukkit.getScheduler().runTaskTimer(
                 this,
                 () -> {
 
                     if (!player.isOnline() || !czyZamrozony(player)) {
-                        zakonczZadanieZdrowia(uuid);
+                        BukkitTask current = taskiSerc.remove(uuid);
+
+                        if (current != null) {
+                            current.cancel();
+                        }
+
                         return;
                     }
 
-                    FreezeData aktualneDane = zamrozeni.get(uuid);
+                    FreezeData currentData = zamrozeni.get(uuid);
 
-                    if (aktualneDane != null) {
+                    if (currentData != null) {
                         wyslijZdrowie(
                                 player,
-                                aktualneDane.frozenHealth()
+                                currentData.frozenHealth()
                         );
                     }
                 },
@@ -369,9 +388,9 @@ public class Main extends JavaPlugin implements Listener {
                 1L
         );
 
-        zadaniaZdrowia.put(uuid, healthTask);
+        taskiSerc.put(uuid, heartTask);
 
-        // 30 SEKUND ZAMROZENIA
+        // AUTOMATYCZNE ODMROZENIE PO 30 SEKUNDACH
         BukkitTask task = Bukkit.getScheduler().runTaskLater(
                 this,
                 () -> odmroz(player),
@@ -379,15 +398,6 @@ public class Main extends JavaPlugin implements Listener {
         );
 
         taski.put(uuid, task);
-    }
-
-    private void zakonczZadanieZdrowia(UUID uuid) {
-
-        BukkitTask task = zadaniaZdrowia.remove(uuid);
-
-        if (task != null) {
-            task.cancel();
-        }
     }
 
     private void odmroz(Player player) {
@@ -402,13 +412,18 @@ public class Main extends JavaPlugin implements Listener {
             task.cancel();
         }
 
-        zakonczZadanieZdrowia(uuid);
+        // ZATRZYMUJEMY WYSYLANIE FALSZYWYCH SERC
+        BukkitTask heartTask = taskiSerc.remove(uuid);
+
+        if (heartTask != null) {
+            heartTask.cancel();
+        }
 
         if (data == null || !player.isOnline()) {
             return;
         }
 
-        // PRZYWRACAMY POZYCJE SERWEROWA
+        // PRZYWRACAMY RZECZYWISTA POZYCJE SERWEROWA
         player.teleport(data.serverLocation());
 
         // ODSWIEZAMY WIDOK INNYCH GRACZY
@@ -429,11 +444,10 @@ public class Main extends JavaPlugin implements Listener {
         // WYSYLAMY PRAWDZIWE HP PO ODMROZENIU
         wyslijZdrowie(player, (float) player.getHealth());
 
-        // 20 LOSOWYCH DZWIEKOW W 3 TICKI
+        // ODTWARZAMY 20 LOSOWYCH DZWIEKOW
         odtworzDzwieki(player);
     }
 
-    // WYSYLANIE HP BEZ ZMIENIANIA PRAWDZIWEGO ZDROWIA NA SERWERZE
     private void wyslijZdrowie(Player player, float health) {
 
         if (!player.isOnline()) {
@@ -446,14 +460,23 @@ public class Main extends JavaPlugin implements Listener {
             );
 
             packet.getFloat().write(0, health);
-            packet.getIntegers().write(0, player.getFoodLevel());
-            packet.getFloat().write(1, player.getSaturation());
+
+            packet.getIntegers().write(
+                    0,
+                    player.getFoodLevel()
+            );
+
+            packet.getFloat().write(
+                    1,
+                    player.getSaturation()
+            );
 
             protocolManager.sendServerPacket(player, packet);
 
         } catch (Exception exception) {
             getLogger().warning(
-                    "Blad wysylania HP: " + exception.getMessage()
+                    "Blad wysylania zdrowia: "
+                            + exception.getMessage()
             );
         }
     }
@@ -537,11 +560,13 @@ public class Main extends JavaPlugin implements Listener {
         if (entity instanceof Player player
                 && czyZamrozony(player)) {
 
+            // OBRAZENIA NADAL SA NALICZANE,
+            // ALE GRACZ NIE OTRZYMUJE ODRZUTU.
             event.setCancelled(true);
         }
     }
 
-    // SMIERC PODCZAS ZAMROZENIA
+    // NATYCHMIASTOWE ZAKONCZENIE FREEZE PO SMIERCI
     @EventHandler(priority = EventPriority.LOWEST)
     public void onDeath(PlayerDeathEvent event) {
 
@@ -556,10 +581,14 @@ public class Main extends JavaPlugin implements Listener {
             task.cancel();
         }
 
-        zakonczZadanieZdrowia(uuid);
+        BukkitTask heartTask = taskiSerc.remove(uuid);
+
+        if (heartTask != null) {
+            heartTask.cancel();
+        }
     }
 
-    // ODSWIEZENIE HP PO ODRODZENIU
+    // ODSWIEZENIE ZDROWIA PO ODRODZENIU
     @EventHandler
     public void onRespawn(PlayerRespawnEvent event) {
 
@@ -568,7 +597,10 @@ public class Main extends JavaPlugin implements Listener {
         Bukkit.getScheduler().runTaskLater(this, () -> {
 
             if (player.isOnline()) {
-                wyslijZdrowie(player, (float) player.getHealth());
+                wyslijZdrowie(
+                        player,
+                        (float) player.getHealth()
+                );
             }
 
         }, 1L);
@@ -587,7 +619,11 @@ public class Main extends JavaPlugin implements Listener {
             task.cancel();
         }
 
-        zakonczZadanieZdrowia(uuid);
+        BukkitTask heartTask = taskiSerc.remove(uuid);
+
+        if (heartTask != null) {
+            heartTask.cancel();
+        }
     }
 
     private boolean czyZamrozony(Player player) {
